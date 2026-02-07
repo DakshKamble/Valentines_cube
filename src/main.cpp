@@ -24,6 +24,7 @@ Adafruit_NeoPixel bodyStrip(LED_COUNT, BODY_STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
 // ================= SLEEP =================
 #define INACTIVITY_TIMEOUT 10000UL  // 10 seconds
+#define DEBOUNCE_DELAY 50           // 50ms debounce
 
 RTC_DATA_ATTR int bootCount = 0;
 
@@ -31,9 +32,19 @@ RTC_DATA_ATTR int bootCount = 0;
 bool yesPressed = false;
 bool idleDrawn = false;
 int noCount = 0;
+bool showingWrongChoice = false;
 
 unsigned long yesStartTime = 0;
 unsigned long lastActivityTime = 0;
+unsigned long lastYesButtonTime = 0;
+unsigned long lastNoButtonTime = 0;
+unsigned long wrongChoiceStartTime = 0;
+
+#define WRONG_CHOICE_DISPLAY_TIME 2000  // Show wrong choice for 2 seconds
+
+// Button states
+bool lastYesState = HIGH;
+bool lastNoState = HIGH;
 
 // ==================================================
 
@@ -155,13 +166,20 @@ void loop() {
   unsigned long now = millis();
 
   // ================= YES =================
-  if (!yesPressed && digitalRead(BTN_YES_PIN) == LOW) {
-    yesPressed = true;
-    idleDrawn = false;
-    yesStartTime = now;
-    lastActivityTime = now;
-    oledYesMessage();
+  bool currentYesState = digitalRead(BTN_YES_PIN);
+  
+  // Handle button debouncing
+  if (currentYesState != lastYesState && (now - lastYesButtonTime) > DEBOUNCE_DELAY) {
+    lastYesButtonTime = now;
+    if (currentYesState == LOW && !yesPressed) {
+      yesPressed = true;
+      idleDrawn = false;
+      yesStartTime = now;
+      lastActivityTime = now;
+      oledYesMessage();
+    }
   }
+  lastYesState = currentYesState;
 
   if (yesPressed) {
     valentinesAnimationStep();
@@ -181,16 +199,30 @@ void loop() {
   }
 
   // ================= NO =================
-  if (digitalRead(BTN_NO_PIN) == LOW) {
-    noCount++;
-    oledWrongChoice(noCount);
-    lastActivityTime = now;
-    delay(800);
+  bool currentNoState = digitalRead(BTN_NO_PIN);
+  
+  // Handle button debouncing
+  if (currentNoState != lastNoState && (now - lastNoButtonTime) > DEBOUNCE_DELAY) {
+    lastNoButtonTime = now;
+    if (currentNoState == LOW) {
+      noCount++;
+      oledWrongChoice(noCount);
+      lastActivityTime = now;
+      idleDrawn = false;
+      showingWrongChoice = true;
+      wrongChoiceStartTime = now;
+    }
+  }
+  lastNoState = currentNoState;
+
+  // ================= WRONG CHOICE DISPLAY =================
+  if (showingWrongChoice && (now - wrongChoiceStartTime >= WRONG_CHOICE_DISPLAY_TIME)) {
+    showingWrongChoice = false;
     idleDrawn = false;
   }
 
   // ================= IDLE =================
-  if (!idleDrawn) {
+  if (!idleDrawn && !showingWrongChoice) {
     oledValentineMessage();
     showIdleLEDs();
     idleDrawn = true;
@@ -202,5 +234,6 @@ void loop() {
     goToDeepSleep();
   }
 
-  delay(50);
+  // Small delay for stability without affecting button response
+  delay(10);
 }

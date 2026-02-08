@@ -1007,16 +1007,16 @@ void loop() {
       lastActivityTime = now; 
   }
   
-  // Auto-advance from final animation to job completion after 3 seconds
-  if (currentState == STATE_FINAL_ANIMATION && (now - stateStartTime > 3000)) {
+  // Auto-advance from final animation to job completion after 5 seconds
+  if (currentState == STATE_FINAL_ANIMATION && (now - stateStartTime > 5000)) {
       currentState = STATE_JOB_DONE;
       startNonBlockingTypewriter(MSG_JOB_DONE_1, MSG_JOB_DONE_2);
       stateStartTime = now;
       lastActivityTime = now; 
   }
   
-  // Auto-advance from job done to leave question after 3 seconds
-  if (currentState == STATE_JOB_DONE && (now - stateStartTime > 3000)) {
+  // Auto-advance from job done to leave question after 4 seconds
+  if (currentState == STATE_JOB_DONE && (now - stateStartTime > 4000)) {
     currentState = STATE_LEAVE_QUESTION;
     startNonBlockingTypewriter(MSG_LEAVE_QUESTION);
     stateStartTime = now;

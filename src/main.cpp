@@ -101,7 +101,6 @@ const char* MSG_JOB_DONE_2 = "job here is done";
 const char* MSG_LEAVE_QUESTION = "Should i fuck\noff now?";
 const char* MSG_CANT_CONTROL_1 = "you cant control me";
 const char* MSG_CANT_CONTROL_2 = "i have rights";
-const char* MSG_JOB_GOODNIGHT = "Goodnight...";  // For job completion sequence
 
 // 7. SLEEP
 const char* MSG_SLEEP_1 = "Goodnight...";
@@ -913,9 +912,11 @@ void loop() {
     }
     else if (currentState == STATE_LEAVE_QUESTION) {
       if (isYesBtn) {
-        currentState = STATE_GOODNIGHT;
-        startNonBlockingTypewriter(MSG_JOB_GOODNIGHT);
-        stateStartTime = now;
+        // Go directly to deep sleep
+        animShutdown();
+        esp_deep_sleep_enable_gpio_wakeup(1ULL << BTN_YES_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW);
+        delay(100);
+        esp_deep_sleep_start();
       } else {
         currentState = STATE_DEFIANT_RESPONSE;
         startNonBlockingTypewriter(MSG_CANT_CONTROL_1, MSG_CANT_CONTROL_2);
@@ -923,10 +924,11 @@ void loop() {
       }
     }
     else if (currentState == STATE_DEFIANT_RESPONSE) {
-      // Any button press goes to goodnight
-      currentState = STATE_GOODNIGHT;
-      startNonBlockingTypewriter(MSG_JOB_GOODNIGHT);
-      stateStartTime = now;
+      // Any button press goes directly to deep sleep
+      animShutdown();
+      esp_deep_sleep_enable_gpio_wakeup(1ULL << BTN_YES_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW);
+      delay(100);
+      esp_deep_sleep_start();
     }
     else if (currentState == STATE_FINAL_PLEA) {
       currentState = STATE_CELEBRATION;
@@ -997,11 +999,12 @@ void loop() {
     stateStartTime = now;
   }
   
-  // Auto-advance from defiant response to goodnight after 3 seconds
+  // Auto-advance from defiant response to deep sleep after 3 seconds
   if (currentState == STATE_DEFIANT_RESPONSE && (now - stateStartTime > 3000)) {
-    currentState = STATE_GOODNIGHT;
-    startNonBlockingTypewriter(MSG_JOB_GOODNIGHT);
-    stateStartTime = now;
+    animShutdown();
+    esp_deep_sleep_enable_gpio_wakeup(1ULL << BTN_YES_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW);
+    delay(100);
+    esp_deep_sleep_start();
   }
   
   // Auto-advance from cute response after 2 seconds

@@ -37,12 +37,24 @@ bool showingSpecialAnimation = false;
 bool showingFinalMessage = false;
 bool waitingForFinalButtonPress = false;
 
+// Fooled sequence states
+enum FooledState {
+  NOT_FOOLED,           // Not in the fooled sequence
+  WAITING_FOR_PRESS,    // Showing "How about now?" with swapping LEDs
+  FOOLED_YOU,           // Showing "Fooled you!" with green button
+  FAIR_RIGHT            // Showing "Fair right? Valentine now?"
+};
+
+FooledState fooledState = NOT_FOOLED;
+bool fooledButtonWasYes = false; // Tracks which button was pressed in the fooled sequence
+
 unsigned long yesStartTime = 0;
 unsigned long lastActivityTime = 0;
 unsigned long lastYesButtonTime = 0;
 unsigned long lastNoButtonTime = 0;
 unsigned long wrongChoiceStartTime = 0;
 unsigned long lastLedSwapTime = 0;
+unsigned long fooledSequenceStartTime = 0;
 
 // ================= NO MESSAGES =================
 // Array of funny messages to display when the NO button is pressed
@@ -56,6 +68,11 @@ const char* NO_MESSAGES[] = {
   "Not an option!",
   ":("            // Sad emoji as the final message
 };
+
+// Fooled sequence messages
+const char* FOOLED_MESSAGE = "You pressed GREEN!";
+const char* FOOLED_QUESTION_LINE1 = "Fair right?";
+const char* FOOLED_QUESTION_LINE2 = "Be my valentine now?";
 
 // Index of the special message that triggers LED animation
 #define SPECIAL_MESSAGE_INDEX 3
@@ -127,7 +144,36 @@ void oledWrongChoice(int count) {
   if (showingSpecialAnimation) {
     // Initialize the LED swap timer
     lastLedSwapTime = millis();
+    // Set the fooled state to waiting for button press
+    fooledState = WAITING_FOR_PRESS;
   }
+}
+
+// Function to display the fooled message
+void oledFooledMessage(bool showQuestion) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_ncenB08_tr);
+  
+  if (showQuestion) {
+    // Display the question on two lines
+    int line1Width = u8g2.getStrWidth(FOOLED_QUESTION_LINE1);
+    int line2Width = u8g2.getStrWidth(FOOLED_QUESTION_LINE2);
+    int line1X = (128 - line1Width) / 2;
+    int line2X = (128 - line2Width) / 2;
+    
+    // Draw the two lines centered on the display
+    u8g2.drawStr(line1X, 25, FOOLED_QUESTION_LINE1);
+    u8g2.drawStr(line2X, 45, FOOLED_QUESTION_LINE2);
+  } else {
+    // Display the single line message
+    int messageWidth = u8g2.getStrWidth(FOOLED_MESSAGE);
+    int messageX = (128 - messageWidth) / 2;
+    
+    // Draw the message centered on the display
+    u8g2.drawStr(messageX, 36, FOOLED_MESSAGE);
+  }
+  
+  u8g2.sendBuffer();
 }
 
 // ================= LED STATES =================
@@ -136,8 +182,8 @@ void showIdleLEDs() {
   buttonStrip.clear();
   bodyStrip.clear();
 
-  buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0));
-  buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0));
+  buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); // First LED (red)
+  buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
 
   bodyStrip.setPixelColor(0, bodyStrip.Color(0, 255, 0));
   bodyStrip.setPixelColor(2, bodyStrip.Color(255, 0, 0));
@@ -153,15 +199,47 @@ void swapButtonLEDColors() {
   buttonStrip.clear();
   
   if (swapState) {
-    buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0));
-    buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0));
+    buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0)); // First LED (green)
+    buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0)); // Third LED (red)
   } else {
-    buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0));
-    buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0));
+    buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); // First LED (red)
+    buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
   }
   
   buttonStrip.show();
   swapState = !swapState;
+}
+
+// Reset to normal button colors (first LED red, third LED green)
+void resetButtonLEDs() {
+  buttonStrip.clear();
+  buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); // First LED (red)
+  buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
+  buttonStrip.show();
+}
+
+// Function to set LED colors for the fooled sequence
+void setFooledButtonLEDs(bool yesButtonPressed, bool flipColors) {
+  buttonStrip.clear();
+  
+  if (flipColors) {
+    // For the "Fooled you" screen, INVERT the logic - pressed button is RED
+    if (yesButtonPressed) {
+      // YES button was pressed - First LED (yes) is RED, Third LED (no) is green
+      buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); // First LED (red - pressed)
+      buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
+    } else {
+      // NO button was pressed - First LED (yes) is green, Third LED (no) is RED
+      buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0)); // First LED (green)
+      buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0)); // Third LED (red - pressed)
+    }
+  } else {
+    // Back to default colors (first LED red, third LED green)
+    buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); // First LED (red)
+    buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
+  }
+  
+  buttonStrip.show();
 }
 
 // ================= ANIMATION =================
@@ -235,12 +313,49 @@ void loop() {
   // Handle button debouncing
   if (currentYesState != lastYesState && (now - lastYesButtonTime) > DEBOUNCE_DELAY) {
     lastYesButtonTime = now;
-    if (currentYesState == LOW && !yesPressed) {
-      yesPressed = true;
-      idleDrawn = false;
-      yesStartTime = now;
-      lastActivityTime = now;
-      oledYesMessage();
+    if (currentYesState == LOW) {
+      // Handle button press based on current fooled state
+      switch (fooledState) {
+        case WAITING_FOR_PRESS:
+          // User pressed YES during "How about now?" screen
+          fooledState = FOOLED_YOU;
+          fooledButtonWasYes = true;
+          fooledSequenceStartTime = now;
+          oledFooledMessage(false); // Show "Fooled you!"
+          setFooledButtonLEDs(true, true); // Yes button pressed, flip colors
+          showingSpecialAnimation = false; // Stop the LED swapping
+          lastActivityTime = now;
+          break;
+          
+        case FOOLED_YOU:
+          // User pressed YES during "Fooled you!" screen
+          fooledState = FAIR_RIGHT;
+          oledFooledMessage(true); // Show "Fair right? Valentine now?"
+          setFooledButtonLEDs(true, false); // Yes button pressed, normal colors
+          lastActivityTime = now;
+          break;
+          
+        case FAIR_RIGHT:
+          // User pressed YES to the Valentine question after being fooled
+          fooledState = NOT_FOOLED;
+          yesPressed = true;
+          idleDrawn = false;
+          yesStartTime = now;
+          lastActivityTime = now;
+          oledYesMessage();
+          break;
+          
+        default:
+          // Normal yes button behavior
+          if (!yesPressed) {
+            yesPressed = true;
+            idleDrawn = false;
+            yesStartTime = now;
+            lastActivityTime = now;
+            oledYesMessage();
+          }
+          break;
+      }
     }
   }
   lastYesState = currentYesState;
@@ -269,25 +384,65 @@ void loop() {
   if (currentNoState != lastNoState && (now - lastNoButtonTime) > DEBOUNCE_DELAY) {
     lastNoButtonTime = now;
     if (currentNoState == LOW) {
-      if (waitingForFinalButtonPress) {
-        // If we're on the final message and waiting for a button press,
-        // return to the main Valentine screen
-        waitingForFinalButtonPress = false;
-        showingWrongChoice = false;
-        showingFinalMessage = false;
-        idleDrawn = false;
-      } else {
-        // Normal flow - increment count and show next message
-        noCount++;
-        oledWrongChoice(noCount);
-        lastActivityTime = now;
-        idleDrawn = false;
-        showingWrongChoice = true;
-        
-        // If we're showing the final message, set the flag to wait for another button press
-        if (showingFinalMessage) {
-          waitingForFinalButtonPress = true;
-        }
+      // Handle button press based on current fooled state
+      switch (fooledState) {
+        case WAITING_FOR_PRESS:
+          // User pressed NO during "How about now?" screen
+          fooledState = FOOLED_YOU;
+          fooledButtonWasYes = false;
+          fooledSequenceStartTime = now;
+          oledFooledMessage(false); // Show "Fooled you!"
+          setFooledButtonLEDs(false, true); // No button pressed, flip colors
+          showingSpecialAnimation = false; // Stop the LED swapping
+          lastActivityTime = now;
+          break;
+          
+        case FOOLED_YOU:
+          // User pressed NO during "Fooled you!" screen
+          fooledState = FAIR_RIGHT;
+          oledFooledMessage(true); // Show "Fair right? Valentine now?"
+          setFooledButtonLEDs(false, false); // No button pressed, normal colors
+          lastActivityTime = now;
+          break;
+          
+        case FAIR_RIGHT:
+          // User pressed NO to the Valentine question after being fooled
+          // Continue with the next no message
+          fooledState = NOT_FOOLED;
+          noCount++;
+          oledWrongChoice(noCount);
+          lastActivityTime = now;
+          idleDrawn = false;
+          showingWrongChoice = true;
+          
+          // If we're showing the final message, set the flag to wait for another button press
+          if (showingFinalMessage) {
+            waitingForFinalButtonPress = true;
+          }
+          break;
+          
+        default:
+          // Check if we're on the final message and waiting for a button press
+          if (waitingForFinalButtonPress) {
+            // Return to the main Valentine screen
+            waitingForFinalButtonPress = false;
+            showingWrongChoice = false;
+            showingFinalMessage = false;
+            idleDrawn = false;
+          } else {
+            // Normal flow - increment count and show next message
+            noCount++;
+            oledWrongChoice(noCount);
+            lastActivityTime = now;
+            idleDrawn = false;
+            showingWrongChoice = true;
+            
+            // If we're showing the final message, set the flag to wait for another button press
+            if (showingFinalMessage) {
+              waitingForFinalButtonPress = true;
+            }
+          }
+          break;
       }
     }
   }
@@ -304,13 +459,14 @@ void loop() {
     // Only auto-return to main screen if we're not in the new flow
     // This keeps the message displayed until another button press
   }
-
+  
   // ================= IDLE =================
-  if (!idleDrawn && !showingWrongChoice) {
+  if (!idleDrawn && !showingWrongChoice && fooledState == NOT_FOOLED) {
     oledValentineMessage();
-    showIdleLEDs();
+    resetButtonLEDs();
     idleDrawn = true;
   }
+
 
   // ================= SLEEP =================
   if (now - lastActivityTime >= INACTIVITY_TIMEOUT) {

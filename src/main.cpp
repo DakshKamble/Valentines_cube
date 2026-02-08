@@ -45,7 +45,7 @@ static const unsigned char image_Scanning_bits[] U8X8_PROGMEM = {0x00,0xc0,0xff,
 
 // ================= TEXT CONFIGURATION (EDIT HERE) =================
 // 0. INTRO SEQUENCE
-const char* MSG_INTRO_1 = "I am a dumb\nfucking cube";
+const char* MSG_INTRO_1 = "I am a dumb\ncube";
 const char* MSG_VALENTINE_CHECK = "is valentines\nnext week?";
 const char* MSG_GOODNIGHT = "oops!\nsorry";
 const char* MSG_REMEMBER = "remember";
@@ -280,27 +280,75 @@ void oledTypewriter(const char* l1, const char* l2 = NULL, const char* l3 = NULL
 void animBoot() {
   u8g2.clearBuffer(); u8g2.sendBuffer();
   
-  // 1. Soft Pink Flow (Body)
+  // 1. Soft Pink Flow (Body) - 50% longer
   for(int i=0; i<ACTIVE_LED_COUNT; i++) {
     bodyStrip.setPixelColor(i, bodyStrip.Color(180, 50, 80)); 
     bodyStrip.show();
-    delay(40);
+    delay(60); // 40ms -> 60ms
   }
 
-  // 2. Button Wakeup
-  for(int b=0; b<200; b+=5) {
-      buttonStrip.setPixelColor(1, buttonStrip.Color(b, b/2, b/2)); 
+  // 2. Smooth Pink Button Animation - 2nd LED first, then 1st and 3rd
+  // Phase 1: 2nd LED (middle) pink fade in
+  for(int b=0; b<=200; b+=3) {
+      buttonStrip.setPixelColor(1, buttonStrip.Color(b, b/4, b/3)); // Pink
       buttonStrip.show();
-      delay(5);
+      delay(8); // Smoother, 50% longer
   }
-  buttonStrip.setPixelColor(1, 0); 
-
-  // Fade in buttons
-  for(int b=0; b<255; b+=5) {
+  
+  // Phase 2: 1st and 3rd LEDs fade in simultaneously while 2nd stays lit
+  for(int b=0; b<=255; b+=3) {
+    // Keep 2nd LED at full pink brightness
+    buttonStrip.setPixelColor(1, buttonStrip.Color(200, 50, 67)); // Pink
+    // Fade in 1st (RED) and 3rd (GREEN) 
     buttonStrip.setPixelColor(0, buttonStrip.Color(b, 0, 0)); // RED
     buttonStrip.setPixelColor(2, buttonStrip.Color(0, b, 0)); // GREEN
     buttonStrip.show();
-    delay(5);
+    delay(8); // 5ms -> 8ms (50% longer, smoother)
+  }
+  
+  // Phase 3: Fade out 2nd LED to black for final button state
+  for(int b=200; b>=0; b-=5) {
+    buttonStrip.setPixelColor(1, buttonStrip.Color(b, b/4, b/3)); // Pink fade out
+    buttonStrip.show();
+    delay(8);
+  }
+  
+  // Phase 4: Smooth transition to match idle animation calculations exactly
+  unsigned long transitionStartTime = millis();
+  for(int step=0; step<=50; step++) {
+    float progress = step / 50.0;
+    unsigned long now = transitionStartTime + (step * 12); // Simulate time progression
+    
+    // Calculate what idle animation values WILL BE at transition end
+    float breathe = (exp(sin(now / 2500.0 * PI)) - 0.36787944) * 108.0;
+    int targetVal = map(breathe, 0, 255, 20, 100);
+    int targetR = targetVal;
+    int targetG = targetVal / 4;
+    int targetB = targetVal / 3;
+    
+    int targetSoftPulse = 80 + (int)(sin(now / 800.0) * 60);
+    
+    // Fade from boot values to calculated idle values
+    for(int i=0; i<ACTIVE_LED_COUNT; i++) {
+      int offset = i * 40;
+      float breatheWithOffset = (exp(sin((now - offset) / 2500.0 * PI)) - 0.36787944) * 108.0;
+      int targetValWithOffset = map(breatheWithOffset, 0, 255, 20, 100);
+      
+      int r = 180 - (int)(progress * (180 - targetValWithOffset));
+      int g = 50 - (int)(progress * (50 - targetValWithOffset/4));  
+      int b = 80 - (int)(progress * (80 - targetValWithOffset/3));
+      bodyStrip.setPixelColor(i, bodyStrip.Color(r, g, b));
+    }
+    
+    // Fade buttons to exact idle pulse values
+    int redVal = 255 - (int)(progress * (255 - targetSoftPulse));
+    int greenVal = 255 - (int)(progress * (255 - targetSoftPulse));
+    buttonStrip.setPixelColor(0, buttonStrip.Color(redVal, 0, 0));
+    buttonStrip.setPixelColor(2, buttonStrip.Color(0, greenVal, 0));
+    
+    bodyStrip.show();
+    buttonStrip.show();
+    delay(12);
   }
   
   // Show dolphin intro screen
@@ -715,7 +763,7 @@ void updateNonBlockingTypewriter() {
   if (!typewriterActive) return;
   
   unsigned long now = millis();
-  if (now - typewriterStartTime < 80 + random(40)) return; // Timing control
+  if (now - typewriterStartTime < 56 + random(28)) return; // Timing control - 30% faster
   
   typewriterStartTime = now;
   u8g2.setFont(u8g2_font_t0_13b_tr);

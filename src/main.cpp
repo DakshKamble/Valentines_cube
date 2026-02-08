@@ -21,10 +21,52 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 Adafruit_NeoPixel buttonStrip(BUTTON_LED_COUNT, BUTTON_STRIP_PIN, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel bodyStrip(PHYSICAL_LED_COUNT, BODY_STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
-// ================= TIMING & LOGIC =================
+// ================= TIMING =================
 #define INACTIVITY_TIMEOUT   30000UL // 30s Sleep
 #define CELEBRATION_DURATION 10000UL // 10s Love then Reset
 #define DEBOUNCE_DELAY       50
+
+// ================= TEXT CONFIGURATION (EDIT HERE) =================
+// 1. BOOT SCREEN
+const char* MSG_BOOT_1 = "Gargi, will you be";
+const char* MSG_BOOT_2 = "my Valentine? ❤︎⁠♡❤︎⁠";
+
+// 2. IDLE MODE (ESCALATING "NO" RESPONSES)
+const char* NO_RESPONSES[] = { 
+  "Really?", 
+  "Are you sure?", 
+  "Think again!" 
+};
+const int TRIGGER_COUNT = 4; // Trick happens on 4th press
+
+// 3. SWAP TRICK MODE
+const char* MSG_TRICK_PROMPT = "How about now?";
+const char* MSG_TRICK_REVEAL = "You pressed YES!";
+
+// 4. FAIR RIGHT MODE
+const char* MSG_FAIR_1 = "Finally!";
+const char* MSG_FAIR_2 = "You have to be my valentine now";
+
+// 5. FINAL PLEA MODE (If they say No to Fair Right)
+const char* MSG_PLEA_1 = "PRETTY PLEASE??";
+const char* MSG_PLEA_2 = "I promise I'm";
+const char* MSG_PLEA_3 = "worth it! <3";
+
+// 6. VICTORY MESSAGES
+// Standard Win (Immediate Yes)
+const char* MSG_WIN_STD_1 = "SHE SAID YES!";
+const char* MSG_WIN_STD_2 = "HAPPY VALENTINE";
+const char* MSG_WIN_STD_3 = "<3 <3 <3";
+
+// Final Win (After begging)
+const char* MSG_WIN_FINAL_1 = "SHE SAID YES!";
+const char* MSG_WIN_FINAL_2 = "(FINALLY!)";
+const char* MSG_WIN_FINAL_3 = "<3 <3 <3";
+
+// 7. SLEEP
+const char* MSG_SLEEP_1 = "Goodnight...";
+const char* MSG_SLEEP_2 = "<3";
+
 
 // ================= STATE MACHINE =================
 enum AppState {
@@ -41,7 +83,7 @@ AppState currentState = STATE_IDLE;
 int noCount = 0;
 unsigned long lastActivityTime = 0;
 unsigned long stateStartTime = 0; 
-bool isTrickReveal = false; // NEW: Locks LED animation during the trick
+bool isTrickReveal = false; 
 
 // Button Debounce Variables
 unsigned long lastDebounceTime = 0;
@@ -49,10 +91,6 @@ bool btnYesStable = HIGH;
 bool btnNoStable = HIGH;
 bool lastBtnYesReading = HIGH;
 bool lastBtnNoReading = HIGH;
-
-// Messages for the initial "No" presses
-const char* NO_MESSAGES[] = { "Really?", "Are you sure?", "Think again!" };
-const int TRIGGER_COUNT = 4; 
 
 // Forward declaration needed so Typewriter can animate LEDs
 void updateLEDs(); 
@@ -175,11 +213,11 @@ void animBoot() {
     delay(5);
   }
   
-  oledTypewriter("WILL YOU BE MY", "VALENTINE ?");
+  oledTypewriter(MSG_BOOT_1, MSG_BOOT_2);
 }
 
 void animShutdown() {
-  oledTypewriter("Goodnight...", "<3"); 
+  oledTypewriter(MSG_SLEEP_1, MSG_SLEEP_2); 
   
   // Fade out softly
   for(int b=150; b>=0; b-=5) {
@@ -221,10 +259,7 @@ void updateLEDs() {
   for(int i=ACTIVE_LED_COUNT; i<PHYSICAL_LED_COUNT; i++) bodyStrip.setPixelColor(i, 0);
 
   // 2. BUTTON STRIP
-  // FIXED: If we are revealing the trick, DO NOT ANIMATE. 
-  // Keep the LEDs locked to what we set in the loop.
   if (!isTrickReveal) {
-      
       int softPulse = 80 + (int)(sin(now / 800.0) * 60); 
       int panicPulse = 100 + (int)(sin(now / 150.0) * 100); 
 
@@ -232,7 +267,6 @@ void updateLEDs() {
 
       switch (currentState) {
         case STATE_SWAP_MODE:
-          // FIXED: PURE RED/GREEN (No Funky Colors)
           if ((now / 150) % 2 == 0) {
              buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0)); // Pure Green
              buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0)); // Pure Red
@@ -328,54 +362,52 @@ void loop() {
     }
     else if (currentState == STATE_FINAL_PLEA) {
       currentState = STATE_CELEBRATION;
-      oledTypewriter("SHE SAID YES!", "(FINALLY!)", "<3 <3 <3");
+      oledTypewriter(MSG_WIN_FINAL_1, MSG_WIN_FINAL_2, MSG_WIN_FINAL_3);
       stateStartTime = now;
     }
     else if (currentState == STATE_FAIR_RIGHT) {
       if (isYesBtn) {
         currentState = STATE_CELEBRATION;
-        oledTypewriter("SHE SAID YES!", "HAPPY VALENTINE", "<3 <3 <3");
+        oledTypewriter(MSG_WIN_STD_1, MSG_WIN_STD_2, MSG_WIN_STD_3);
         stateStartTime = now;
       } else {
         currentState = STATE_FINAL_PLEA;
-        oledTypewriter("PRETTY PLEASE??", "I promise I'm", "worth it! <3");
+        oledTypewriter(MSG_PLEA_1, MSG_PLEA_2, MSG_PLEA_3);
       }
     }
     else if (currentState == STATE_SWAP_MODE) {
-      // FIXED: IMMEDIATE UPDATE BEFORE TEXT STARTS
-      isTrickReveal = true; // Lock the animation loop
+      // IMMEDIATE UPDATE BEFORE TEXT STARTS
+      isTrickReveal = true; 
       
       buttonStrip.clear();
       if (isYesBtn) { 
-        // Physically Left. Show it was "Red" (Trick)
         buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); 
         buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0));
       } else { 
-        // Physically Right. Show it was "Red" (Trick)
         buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0));
         buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0)); 
       }
       buttonStrip.show(); // FORCE SHOW NOW
 
-      oledTypewriter("You pressed YES!"); 
+      oledTypewriter(MSG_TRICK_REVEAL); 
       
       delay(2000); 
-      isTrickReveal = false; // Unlock animation
+      isTrickReveal = false; 
       currentState = STATE_FAIR_RIGHT;
-      oledTypewriter("Fair right?", "Be my valentine?");
+      oledTypewriter(MSG_FAIR_1, MSG_FAIR_2);
     }
     else if (currentState == STATE_IDLE) {
       if (isYesBtn) {
         currentState = STATE_CELEBRATION;
-        oledTypewriter("SHE SAID YES!", "HAPPY VALENTINE", "<3 <3 <3");
+        oledTypewriter(MSG_WIN_STD_1, MSG_WIN_STD_2, MSG_WIN_STD_3);
         stateStartTime = now;
       } else {
         noCount++;
         if (noCount >= TRIGGER_COUNT) {
           currentState = STATE_SWAP_MODE;
-          oledTypewriter("How about now?");
+          oledTypewriter(MSG_TRICK_PROMPT);
         } else {
-          oledTypewriter(NO_MESSAGES[noCount - 1]);
+          oledTypewriter(NO_RESPONSES[noCount - 1]);
         }
       }
     }

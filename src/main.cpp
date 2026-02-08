@@ -42,7 +42,11 @@ enum FooledState {
   NOT_FOOLED,           // Not in the fooled sequence
   WAITING_FOR_PRESS,    // Showing "How about now?" with swapping LEDs
   FOOLED_YOU,           // Showing "Fooled you!" with green button
-  FAIR_RIGHT            // Showing "Fair right? Valentine now?"
+  FAIR_RIGHT,           // Showing "Fair right? Valentine now?"
+  WHAT_ABOUT_NOW,       // Both buttons green, "What about now?"
+  WHY_NO_PRESS,         // "Why you no press button :("
+  LETS_TRY_AGAIN,       // "Let's try again"
+  FINAL_ATTEMPT         // Both buttons green again, final attempt
 };
 
 FooledState fooledState = NOT_FOOLED;
@@ -55,6 +59,7 @@ unsigned long lastNoButtonTime = 0;
 unsigned long wrongChoiceStartTime = 0;
 unsigned long lastLedSwapTime = 0;
 unsigned long fooledSequenceStartTime = 0;
+unsigned long whatAboutNowStartTime = 0;
 
 // ================= NO MESSAGES =================
 // Array of funny messages to display when the NO button is pressed
@@ -73,6 +78,10 @@ const char* NO_MESSAGES[] = {
 const char* FOOLED_MESSAGE = "You pressed GREEN!";
 const char* FOOLED_QUESTION_LINE1 = "Fair right?";
 const char* FOOLED_QUESTION_LINE2 = "Be my valentine now?";
+const char* WHAT_ABOUT_NOW_MESSAGE = "What about now?";
+const char* WHY_NO_PRESS_LINE1 = "Why you no";
+const char* WHY_NO_PRESS_LINE2 = "press button :(";
+const char* LETS_TRY_AGAIN_MESSAGE = "Let's try again";
 
 // Index of the special message that triggers LED animation
 #define SPECIAL_MESSAGE_INDEX 3
@@ -176,6 +185,21 @@ void oledFooledMessage(bool showQuestion) {
   u8g2.sendBuffer();
 }
 
+// Function to display additional messages
+void oledDisplayMessage(const char* message) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_ncenB08_tr);
+  
+  // Calculate position to center the message
+  int messageWidth = u8g2.getStrWidth(message);
+  int messageX = (128 - messageWidth) / 2;
+  
+  // Draw the message centered on the display
+  u8g2.drawStr(messageX, 36, message);
+  
+  u8g2.sendBuffer();
+}
+
 // ================= LED STATES =================
 
 void showIdleLEDs() {
@@ -239,6 +263,14 @@ void setFooledButtonLEDs(bool yesButtonPressed, bool flipColors) {
     buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
   }
   
+  buttonStrip.show();
+}
+
+// Function to set both buttons to green
+void setBothButtonsGreen() {
+  buttonStrip.clear();
+  buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0)); // First LED (green)
+  buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Third LED (green)
   buttonStrip.show();
 }
 
@@ -337,6 +369,51 @@ void loop() {
           
         case FAIR_RIGHT:
           // User pressed YES to the Valentine question after being fooled
+          fooledState = WHAT_ABOUT_NOW;
+          whatAboutNowStartTime = now;
+          lastActivityTime = now;
+          oledDisplayMessage(WHAT_ABOUT_NOW_MESSAGE);
+          setBothButtonsGreen();
+          break;
+          
+        case WHAT_ABOUT_NOW:
+          // User pressed YES during "What about now?" screen
+          fooledState = NOT_FOOLED;
+          yesPressed = true;
+          idleDrawn = false;
+          yesStartTime = now;
+          lastActivityTime = now;
+          oledYesMessage();
+          break;
+          
+        case WHY_NO_PRESS:
+        {
+          // User pressed YES after "Why you no press button :(" screen
+          fooledState = LETS_TRY_AGAIN;
+          lastActivityTime = now;
+          // Display the message centered
+          u8g2.clearBuffer();
+          u8g2.setFont(u8g2_font_ncenB08_tr);
+          
+          int messageWidthYes = u8g2.getStrWidth(LETS_TRY_AGAIN_MESSAGE);
+          int messageXYes = (128 - messageWidthYes) / 2;
+          
+          u8g2.drawStr(messageXYes, 36, LETS_TRY_AGAIN_MESSAGE);
+          u8g2.sendBuffer();
+          break;
+        }
+          
+        case LETS_TRY_AGAIN:
+          // User pressed YES after "Let's try again" screen
+          fooledState = FINAL_ATTEMPT;
+          whatAboutNowStartTime = now;
+          lastActivityTime = now;
+          oledDisplayMessage(WHAT_ABOUT_NOW_MESSAGE);
+          setBothButtonsGreen();
+          break;
+          
+        case FINAL_ATTEMPT:
+          // User pressed YES during final attempt
           fooledState = NOT_FOOLED;
           yesPressed = true;
           idleDrawn = false;
@@ -407,18 +484,57 @@ void loop() {
           
         case FAIR_RIGHT:
           // User pressed NO to the Valentine question after being fooled
-          // Continue with the next no message
-          fooledState = NOT_FOOLED;
-          noCount++;
-          oledWrongChoice(noCount);
+          fooledState = WHAT_ABOUT_NOW;
+          whatAboutNowStartTime = now;
           lastActivityTime = now;
-          idleDrawn = false;
-          showingWrongChoice = true;
+          oledDisplayMessage(WHAT_ABOUT_NOW_MESSAGE);
+          setBothButtonsGreen();
+          break;
           
-          // If we're showing the final message, set the flag to wait for another button press
-          if (showingFinalMessage) {
-            waitingForFinalButtonPress = true;
-          }
+        case WHAT_ABOUT_NOW:
+          // User pressed NO during "What about now?" screen
+          fooledState = NOT_FOOLED;
+          yesPressed = true; // Still show the valentine animation
+          idleDrawn = false;
+          yesStartTime = now;
+          lastActivityTime = now;
+          oledYesMessage();
+          break;
+          
+        case WHY_NO_PRESS:
+        {
+          // User pressed NO after "Why you no press button :(" screen
+          fooledState = LETS_TRY_AGAIN;
+          lastActivityTime = now;
+          // Display the message centered
+          u8g2.clearBuffer();
+          u8g2.setFont(u8g2_font_ncenB08_tr);
+          
+          int messageWidthNo = u8g2.getStrWidth(LETS_TRY_AGAIN_MESSAGE);
+          int messageXNo = (128 - messageWidthNo) / 2;
+          
+          u8g2.drawStr(messageXNo, 36, LETS_TRY_AGAIN_MESSAGE);
+          u8g2.sendBuffer();
+          break;
+        }
+          
+        case LETS_TRY_AGAIN:
+          // User pressed NO after "Let's try again" screen
+          fooledState = FINAL_ATTEMPT;
+          whatAboutNowStartTime = now;
+          lastActivityTime = now;
+          oledDisplayMessage(WHAT_ABOUT_NOW_MESSAGE);
+          setBothButtonsGreen();
+          break;
+          
+        case FINAL_ATTEMPT:
+          // User pressed NO during final attempt
+          fooledState = NOT_FOOLED;
+          yesPressed = true; // Still show the valentine animation
+          idleDrawn = false;
+          yesStartTime = now;
+          lastActivityTime = now;
+          oledYesMessage();
           break;
           
         default:
@@ -458,6 +574,28 @@ void loop() {
     
     // Only auto-return to main screen if we're not in the new flow
     // This keeps the message displayed until another button press
+  }
+  
+  // ================= WHAT ABOUT NOW SEQUENCE =================
+  if (fooledState == WHAT_ABOUT_NOW || fooledState == FINAL_ATTEMPT) {
+    // Check if 3 seconds have passed without a button press
+    if (now - whatAboutNowStartTime >= 3000) {
+      fooledState = WHY_NO_PRESS;
+      // Display the message on two lines
+      u8g2.clearBuffer();
+      u8g2.setFont(u8g2_font_ncenB08_tr);
+      
+      int line1Width = u8g2.getStrWidth(WHY_NO_PRESS_LINE1);
+      int line2Width = u8g2.getStrWidth(WHY_NO_PRESS_LINE2);
+      int line1X = (128 - line1Width) / 2;
+      int line2X = (128 - line2Width) / 2;
+      
+      u8g2.drawStr(line1X, 25, WHY_NO_PRESS_LINE1);
+      u8g2.drawStr(line2X, 45, WHY_NO_PRESS_LINE2);
+      u8g2.sendBuffer();
+      
+      resetButtonLEDs(); // Reset to default colors
+    }
   }
   
   // ================= IDLE =================

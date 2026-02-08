@@ -41,6 +41,7 @@ AppState currentState = STATE_IDLE;
 int noCount = 0;
 unsigned long lastActivityTime = 0;
 unsigned long stateStartTime = 0; 
+bool isTrickReveal = false; // NEW: Locks LED animation during the trick
 
 // Button Debounce Variables
 unsigned long lastDebounceTime = 0;
@@ -53,6 +54,9 @@ bool lastBtnNoReading = HIGH;
 const char* NO_MESSAGES[] = { "Really?", "Are you sure?", "Think again!" };
 const int TRIGGER_COUNT = 4; 
 
+// Forward declaration needed so Typewriter can animate LEDs
+void updateLEDs(); 
+
 // ================= HARD RESET =================
 void forceHardReset() {
   buttonStrip.begin();
@@ -62,68 +66,121 @@ void forceHardReset() {
   buttonStrip.show();
   bodyStrip.show();
   delay(20); 
-  buttonStrip.setBrightness(150); // Lower brightness for softness
+  buttonStrip.setBrightness(150); // Soft brightness
   bodyStrip.setBrightness(150);
 }
 
-// ================= DISPLAY HELPERS =================
-void oledGeneric(const char* l1, const char* l2 = NULL, const char* l3 = NULL) {
-  u8g2.clearBuffer();
+// ================= DISPLAY HELPERS (TYPEWRITER) =================
+void oledTypewriter(const char* l1, const char* l2 = NULL, const char* l3 = NULL) {
   u8g2.setFont(u8g2_font_ncenB08_tr);
   
-  int w;
-  if (l1) { w = u8g2.getStrWidth(l1); u8g2.drawStr((128-w)/2, l2?25:36, l1); }
-  if (l2) { w = u8g2.getStrWidth(l2); u8g2.drawStr((128-w)/2, 45, l2); }
-  if (l3) { w = u8g2.getStrWidth(l3); u8g2.drawStr((128-w)/2, 60, l3); }
+  char buf1[32] = "";
+  char buf2[32] = "";
+  char buf3[32] = "";
   
+  // --- TYPE LINE 1 ---
+  if (l1) {
+    int len = strlen(l1);
+    for(int i=0; i<len; i++) {
+      buf1[i] = l1[i];
+      buf1[i+1] = '\0';
+      
+      u8g2.clearBuffer();
+      int w = u8g2.getStrWidth(buf1);
+      int x = (128-w)/2;
+      int y = l2 ? 25 : 36;
+      u8g2.drawStr(x, y, buf1);
+      u8g2.drawStr(x + w + 1, y, "_"); 
+      u8g2.sendBuffer();
+      
+      updateLEDs(); // KEEP ANIMATIONS ALIVE!
+      delay(30 + random(30)); 
+    }
+  }
+
+  // --- TYPE LINE 2 ---
+  if (l2) {
+    int len = strlen(l2);
+    for(int i=0; i<len; i++) {
+      buf2[i] = l2[i];
+      buf2[i+1] = '\0';
+      
+      u8g2.clearBuffer();
+      int w1 = u8g2.getStrWidth(l1); u8g2.drawStr((128-w1)/2, 25, l1);
+      
+      int w2 = u8g2.getStrWidth(buf2);
+      int x = (128-w2)/2;
+      u8g2.drawStr(x, 45, buf2);
+      u8g2.drawStr(x + w2 + 1, 45, "_"); 
+      u8g2.sendBuffer();
+      updateLEDs();
+      delay(30 + random(30));
+    }
+  }
+
+  // --- TYPE LINE 3 ---
+  if (l3) {
+    int len = strlen(l3);
+    for(int i=0; i<len; i++) {
+      buf3[i] = l3[i];
+      buf3[i+1] = '\0';
+      
+      u8g2.clearBuffer();
+      int w1 = u8g2.getStrWidth(l1); u8g2.drawStr((128-w1)/2, 25, l1);
+      int w2 = u8g2.getStrWidth(l2); u8g2.drawStr((128-w2)/2, 45, l2);
+      
+      int w3 = u8g2.getStrWidth(buf3);
+      int x = (128-w3)/2;
+      u8g2.drawStr(x, 60, buf3);
+      u8g2.drawStr(x + w3 + 1, 60, "_"); 
+
+      u8g2.sendBuffer();
+      updateLEDs();
+      delay(30 + random(30));
+    }
+  }
+
+  // Final render
+  u8g2.clearBuffer();
+  if(l1) { int w = u8g2.getStrWidth(l1); u8g2.drawStr((128-w)/2, l2?25:36, l1); }
+  if(l2) { int w = u8g2.getStrWidth(l2); u8g2.drawStr((128-w)/2, 45, l2); }
+  if(l3) { int w = u8g2.getStrWidth(l3); u8g2.drawStr((128-w)/2, 60, l3); }
   u8g2.sendBuffer();
 }
 
 // ================= ANIMATIONS =================
-
-// Helper for soft colors
-uint32_t colorSoftPink(int brightness) {
-  // R=255, G=100, B=120 gives a lovely rose pink
-  return bodyStrip.Color((255*brightness)/255, (100*brightness)/255, (120*brightness)/255);
-}
-
-uint32_t colorDeepRed(int brightness) {
-  return bodyStrip.Color((255*brightness)/255, (20*brightness)/255, (30*brightness)/255);
-}
-
 void animBoot() {
   u8g2.clearBuffer(); u8g2.sendBuffer();
   
   // 1. Soft Pink Flow (Body)
   for(int i=0; i<ACTIVE_LED_COUNT; i++) {
-    // Gentle wash
     bodyStrip.setPixelColor(i, bodyStrip.Color(180, 50, 80)); 
     bodyStrip.show();
     delay(40);
   }
 
-  // 2. Button Wakeup Animation (Requested)
-  // Pulse the middle then expand to Red/Green
+  // 2. Button Wakeup
   for(int b=0; b<200; b+=5) {
-      buttonStrip.setPixelColor(1, buttonStrip.Color(b, b/2, b/2)); // White-ish center
+      buttonStrip.setPixelColor(1, buttonStrip.Color(b, b/2, b/2)); 
       buttonStrip.show();
       delay(5);
   }
-  buttonStrip.setPixelColor(1, 0); // Clear center
+  buttonStrip.setPixelColor(1, 0); 
 
-  // Fade in the interaction buttons (Left=Red, Right=Green)
+  // Fade in buttons
   for(int b=0; b<255; b+=5) {
-    buttonStrip.setPixelColor(0, buttonStrip.Color(b, 0, 0)); // LED 0 -> RED
-    buttonStrip.setPixelColor(2, buttonStrip.Color(0, b, 0)); // LED 2 -> GREEN
+    buttonStrip.setPixelColor(0, buttonStrip.Color(b, 0, 0)); // RED
+    buttonStrip.setPixelColor(2, buttonStrip.Color(0, b, 0)); // GREEN
     buttonStrip.show();
     delay(5);
   }
   
-  oledGeneric("WILL YOU BE MY", "VALENTINE ?");
+  oledTypewriter("WILL YOU BE MY", "VALENTINE ?");
 }
 
 void animShutdown() {
-  oledGeneric("Goodnight...", "<3");
+  oledTypewriter("Goodnight...", "<3"); 
+  
   // Fade out softly
   for(int b=150; b>=0; b-=5) {
     for(int i=0; i<ACTIVE_LED_COUNT; i++) {
@@ -142,82 +199,68 @@ void animShutdown() {
 void updateLEDs() {
   unsigned long now = millis();
   
-  // 1. BODY STRIP: SOFT ROMANCE
+  // 1. BODY STRIP: SOFT ROMANCE (Always Active)
   if (currentState == STATE_CELEBRATION) {
-      // ROMANCE PULSE: Flow between Deep Red and Soft Pink
-      float wave = 0.5 + 0.5 * sin(now / 1000.0 * PI); // Slow wave 0.0 to 1.0
-      
+      float wave = 0.5 + 0.5 * sin(now / 1000.0 * PI);
       for(int i=0; i<ACTIVE_LED_COUNT; i++) {
-          // Phase shift for flowing effect
           float localWave = 0.5 + 0.5 * sin((now / 800.0 * PI) + (i * 0.5));
-          
           int r = 255;
-          int g = 20 + (80 * localWave);  // vary green to move from red to pink
-          int b = 30 + (90 * localWave);  // vary blue to soften
-          
+          int g = 20 + (80 * localWave);
+          int b = 30 + (90 * localWave);
           bodyStrip.setPixelColor(i, bodyStrip.Color(r, g, b));
       }
   } else {
     // CANDLELIGHT BREATHING (IDLE)
-    // Very subtle warm pink/peach
     for(int i=0; i<ACTIVE_LED_COUNT; i++) {
       int offset = i * 40; 
       float breathe = (exp(sin((now - offset) / 2500.0 * PI)) - 0.36787944) * 108.0;
       int val = map(breathe, 0, 255, 20, 100);
-      
-      // Warm Pink: R=High, G=Low-Mid, B=Low
       bodyStrip.setPixelColor(i, bodyStrip.Color(val, val/4, val/3)); 
     }
   }
-  // Force unused OFF
   for(int i=ACTIVE_LED_COUNT; i<PHYSICAL_LED_COUNT; i++) bodyStrip.setPixelColor(i, 0);
 
   // 2. BUTTON STRIP
-  // Gentle pulse variables
-  int softPulse = 80 + (int)(sin(now / 800.0) * 60); // 20 to 140
-  int panicPulse = 100 + (int)(sin(now / 150.0) * 100); 
+  // FIXED: If we are revealing the trick, DO NOT ANIMATE. 
+  // Keep the LEDs locked to what we set in the loop.
+  if (!isTrickReveal) {
+      
+      int softPulse = 80 + (int)(sin(now / 800.0) * 60); 
+      int panicPulse = 100 + (int)(sin(now / 150.0) * 100); 
 
-  buttonStrip.clear();
+      buttonStrip.clear();
 
-  switch (currentState) {
-    case STATE_SWAP_MODE:
-      // Rapid Swap (Keep strict timing for trick, but softer colors)
-      if ((now / 150) % 2 == 0) {
-         buttonStrip.setPixelColor(0, buttonStrip.Color(0, 200, 50)); // Soft Green
-         buttonStrip.setPixelColor(2, buttonStrip.Color(200, 0, 50)); // Soft Red
-      } else {
-         buttonStrip.setPixelColor(0, buttonStrip.Color(200, 0, 50)); 
-         buttonStrip.setPixelColor(2, buttonStrip.Color(0, 200, 50)); 
+      switch (currentState) {
+        case STATE_SWAP_MODE:
+          // FIXED: PURE RED/GREEN (No Funky Colors)
+          if ((now / 150) % 2 == 0) {
+             buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0)); // Pure Green
+             buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0)); // Pure Red
+          } else {
+             buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); // Pure Red
+             buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0)); // Pure Green
+          }
+          break;
+
+        case STATE_FINAL_PLEA:
+          buttonStrip.setPixelColor(0, buttonStrip.Color(0, panicPulse, 50)); 
+          buttonStrip.setPixelColor(2, buttonStrip.Color(0, panicPulse, 50));
+          break;
+
+        case STATE_CELEBRATION:
+          {
+            int winPulse = 100 + (int)(sin(now / 300.0) * 155); 
+            if (winPulse < 0) winPulse = 0;
+            buttonStrip.fill(buttonStrip.Color(winPulse/4, 200, winPulse/4));
+          }
+          break;
+
+        case STATE_FAIR_RIGHT:
+        default: // IDLE & FAIR RIGHT
+          buttonStrip.setPixelColor(0, buttonStrip.Color(softPulse, 0, 0)); 
+          buttonStrip.setPixelColor(2, buttonStrip.Color(0, softPulse, 0)); 
+          break;
       }
-      break;
-
-    case STATE_FINAL_PLEA:
-      // Both Green, pulsing fast but soft green
-      buttonStrip.setPixelColor(0, buttonStrip.Color(0, panicPulse, 50)); 
-      buttonStrip.setPixelColor(2, buttonStrip.Color(0, panicPulse, 50));
-      break;
-
-    case STATE_CELEBRATION:
-      // Heartbeat Green (Not strobe)
-      // Pulse between bright green and soft white-green
-      {
-        int winPulse = 100 + (int)(sin(now / 300.0) * 155); // fast but smooth
-        if (winPulse < 0) winPulse = 0;
-        buttonStrip.fill(buttonStrip.Color(winPulse/4, 200, winPulse/4));
-      }
-      break;
-
-    case STATE_FAIR_RIGHT:
-      // LED 0 -> RED, LED 2 -> GREEN (Soft)
-      buttonStrip.setPixelColor(0, buttonStrip.Color(softPulse, 0, 0)); 
-      buttonStrip.setPixelColor(2, buttonStrip.Color(0, softPulse, 0)); 
-      break;
-
-    default: // IDLE
-      // LED 0 -> RED, LED 2 -> GREEN (Soft)
-      buttonStrip.setPixelColor(0, buttonStrip.Color(softPulse, 0, 0)); 
-      buttonStrip.setPixelColor(2, buttonStrip.Color(0, softPulse, 0)); 
-      break;
   }
 
   bodyStrip.show();
@@ -285,47 +328,54 @@ void loop() {
     }
     else if (currentState == STATE_FINAL_PLEA) {
       currentState = STATE_CELEBRATION;
-      oledGeneric("SHE SAID YES!", "(FINALLY!)", "<3 <3 <3");
+      oledTypewriter("SHE SAID YES!", "(FINALLY!)", "<3 <3 <3");
       stateStartTime = now;
     }
     else if (currentState == STATE_FAIR_RIGHT) {
       if (isYesBtn) {
         currentState = STATE_CELEBRATION;
-        oledGeneric("SHE SAID YES!", "HAPPY VALENTINE", "<3 <3 <3");
+        oledTypewriter("SHE SAID YES!", "HAPPY VALENTINE", "<3 <3 <3");
         stateStartTime = now;
       } else {
         currentState = STATE_FINAL_PLEA;
-        oledGeneric("PRETTY PLEASE??", "I promise I'm", "worth it! <3");
+        oledTypewriter("PRETTY PLEASE??", "I promise I'm", "worth it! <3");
       }
     }
     else if (currentState == STATE_SWAP_MODE) {
-      oledGeneric("You pressed YES!"); 
+      // FIXED: IMMEDIATE UPDATE BEFORE TEXT STARTS
+      isTrickReveal = true; // Lock the animation loop
+      
       buttonStrip.clear();
-      // Trick Visuals
       if (isYesBtn) { 
+        // Physically Left. Show it was "Red" (Trick)
         buttonStrip.setPixelColor(0, buttonStrip.Color(255, 0, 0)); 
         buttonStrip.setPixelColor(2, buttonStrip.Color(0, 255, 0));
       } else { 
+        // Physically Right. Show it was "Red" (Trick)
         buttonStrip.setPixelColor(0, buttonStrip.Color(0, 255, 0));
         buttonStrip.setPixelColor(2, buttonStrip.Color(255, 0, 0)); 
       }
-      buttonStrip.show();
+      buttonStrip.show(); // FORCE SHOW NOW
+
+      oledTypewriter("You pressed YES!"); 
+      
       delay(2000); 
+      isTrickReveal = false; // Unlock animation
       currentState = STATE_FAIR_RIGHT;
-      oledGeneric("Fair right?", "Be my valentine?");
+      oledTypewriter("Fair right?", "Be my valentine?");
     }
     else if (currentState == STATE_IDLE) {
       if (isYesBtn) {
         currentState = STATE_CELEBRATION;
-        oledGeneric("SHE SAID YES!", "HAPPY VALENTINE", "<3 <3 <3");
+        oledTypewriter("SHE SAID YES!", "HAPPY VALENTINE", "<3 <3 <3");
         stateStartTime = now;
       } else {
         noCount++;
         if (noCount >= TRIGGER_COUNT) {
           currentState = STATE_SWAP_MODE;
-          oledGeneric("How about now?");
+          oledTypewriter("How about now?");
         } else {
-          oledGeneric(NO_MESSAGES[noCount - 1]);
+          oledTypewriter(NO_MESSAGES[noCount - 1]);
         }
       }
     }

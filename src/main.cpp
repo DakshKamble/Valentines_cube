@@ -22,7 +22,7 @@ Adafruit_NeoPixel buttonStrip(BUTTON_LED_COUNT, BUTTON_STRIP_PIN, NEO_GRB + NEO_
 Adafruit_NeoPixel bodyStrip(PHYSICAL_LED_COUNT, BODY_STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
 // ================= TIMING =================
-#define INACTIVITY_TIMEOUT   30000UL // 30s Sleep
+#define INACTIVITY_TIMEOUT   180000UL // 3min Sleep
 #define CELEBRATION_DURATION 10000UL // 10s Love then Reset
 #define DEBOUNCE_DELAY       50
 
@@ -95,9 +95,17 @@ const char* MSG_WIN_FINAL_1 = "SHE SAID YES!";
 const char* MSG_WIN_FINAL_2 = "(FINALLY!)";
 const char* MSG_WIN_FINAL_3 = "<3 <3 <3";
 
+// 6. JOB COMPLETION SEQUENCE
+const char* MSG_JOB_DONE_1 = "with that my";
+const char* MSG_JOB_DONE_2 = "job here is done";
+const char* MSG_LEAVE_QUESTION = "Should i fuck\noff now?";
+const char* MSG_CANT_CONTROL_1 = "you cant control me";
+const char* MSG_CANT_CONTROL_2 = "i have rights";
+const char* MSG_JOB_GOODNIGHT = "Goodnight...";  // For job completion sequence
+
 // 7. SLEEP
 const char* MSG_SLEEP_1 = "Goodnight...";
-const char* MSG_SLEEP_2 = "    <3";
+const char* MSG_SLEEP_2 = "<3";
 
 
 // ================= STATE MACHINE =================
@@ -120,7 +128,10 @@ enum AppState {
   STATE_SWAP_MODE,       // Trick mode
   STATE_FAIR_RIGHT,      // "Fair right?" (Yes/No available)
   STATE_FINAL_PLEA,      // Control mode (Force Win)
-  STATE_CELEBRATION      // "She said YES!"
+  STATE_CELEBRATION,     // "She said YES!"
+  STATE_JOB_DONE,        // "with that my job here is done"
+  STATE_LEAVE_QUESTION,  // "Should i fuck off now?"
+  STATE_DEFIANT_RESPONSE // "you cant control me i have rights"
 };
 
 AppState currentState = STATE_INTRO_DOLPHIN;
@@ -890,11 +901,32 @@ void loop() {
     // MAIN VALENTINE SEQUENCE
     else if (currentState == STATE_CELEBRATION) {
       if (now - stateStartTime > 500) { 
-        forceHardReset();
-        currentState = STATE_INTRO_DOLPHIN;
-        noCount = 0;
-        animBoot(); 
+        currentState = STATE_JOB_DONE;
+        startNonBlockingTypewriter(MSG_JOB_DONE_1, MSG_JOB_DONE_2);
+        stateStartTime = now;
+        lastActivityTime = now; 
       }
+    }
+    else if (currentState == STATE_JOB_DONE) {
+      currentState = STATE_LEAVE_QUESTION;
+      startNonBlockingTypewriter(MSG_LEAVE_QUESTION);
+    }
+    else if (currentState == STATE_LEAVE_QUESTION) {
+      if (isYesBtn) {
+        currentState = STATE_GOODNIGHT;
+        startNonBlockingTypewriter(MSG_JOB_GOODNIGHT);
+        stateStartTime = now;
+      } else {
+        currentState = STATE_DEFIANT_RESPONSE;
+        startNonBlockingTypewriter(MSG_CANT_CONTROL_1, MSG_CANT_CONTROL_2);
+        stateStartTime = now;
+      }
+    }
+    else if (currentState == STATE_DEFIANT_RESPONSE) {
+      // Any button press goes to goodnight
+      currentState = STATE_GOODNIGHT;
+      startNonBlockingTypewriter(MSG_JOB_GOODNIGHT);
+      stateStartTime = now;
     }
     else if (currentState == STATE_FINAL_PLEA) {
       currentState = STATE_CELEBRATION;
@@ -952,11 +984,24 @@ void loop() {
 
   // --- 3. AUTO RESET & AUTO-ADVANCE ---
   if (currentState == STATE_CELEBRATION && (now - stateStartTime > CELEBRATION_DURATION)) {
-      forceHardReset();      
-      noCount = 0;           
-      currentState = STATE_INTRO_DOLPHIN; 
-      animBoot();            
+      currentState = STATE_JOB_DONE;
+      startNonBlockingTypewriter(MSG_JOB_DONE_1, MSG_JOB_DONE_2);
+      stateStartTime = now;
       lastActivityTime = now; 
+  }
+  
+  // Auto-advance from job done to leave question after 3 seconds
+  if (currentState == STATE_JOB_DONE && (now - stateStartTime > 3000)) {
+    currentState = STATE_LEAVE_QUESTION;
+    startNonBlockingTypewriter(MSG_LEAVE_QUESTION);
+    stateStartTime = now;
+  }
+  
+  // Auto-advance from defiant response to goodnight after 3 seconds
+  if (currentState == STATE_DEFIANT_RESPONSE && (now - stateStartTime > 3000)) {
+    currentState = STATE_GOODNIGHT;
+    startNonBlockingTypewriter(MSG_JOB_GOODNIGHT);
+    stateStartTime = now;
   }
   
   // Auto-advance from cute response after 2 seconds
